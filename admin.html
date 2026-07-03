@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>관리자 · 브레도</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div class="logo">🥖 브레도 관리자</div>
+      <div class="nav-right"><a href="index.html">스토어</a></div>
+    </div>
+  </header>
+
+  <main class="wrap" id="main">
+    <p id="gate" style="margin-top:2rem;">권한 확인 중…</p>
+
+    <div id="content" style="display:none;">
+      <h1 class="page-title">주문 내역</h1>
+      <table id="ordersTable">
+        <thead>
+          <tr><th>주문번호</th><th>상품</th><th>구매자</th><th>금액</th><th>상태</th><th>일시</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <h2 class="section-title">사용자</h2>
+      <table id="usersTable">
+        <thead>
+          <tr><th>이메일</th><th>관리자</th><th>가입일</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </main>
+
+  <footer>© 2026 브레도 BREADO</footer>
+
+  <script type="module">
+    import { supabase } from "./js/config.js";
+
+    const gate = document.getElementById("gate");
+    const content = document.getElementById("content");
+
+    function fmt(ts) { return new Date(ts).toLocaleString("ko-KR"); }
+    function won(n) { return n.toLocaleString("ko-KR") + "원"; }
+
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { gate.textContent = "로그인이 필요합니다."; return; }
+
+      const { data: me } = await supabase
+        .from("profiles").select("is_admin").eq("id", user.id).single();
+      if (!me || !me.is_admin) { gate.textContent = "접근 권한이 없습니다."; return; }
+
+      gate.style.display = "none";
+      content.style.display = "block";
+
+      // 사용자 (이메일 매핑용으로도 사용)
+      const { data: users } = await supabase
+        .from("profiles").select("*").order("created_at", { ascending: false });
+      const emailById = Object.fromEntries((users || []).map(u => [u.id, u.email]));
+
+      // 주문 (상품명 조인)
+      const { data: orders } = await supabase
+        .from("orders").select("*, products(name)").order("created_at", { ascending: false });
+
+      document.querySelector("#ordersTable tbody").innerHTML = (orders || []).map(o => `
+        <tr>
+          <td>${o.order_id.slice(0, 8)}…</td>
+          <td>${o.products ? o.products.name : "-"}</td>
+          <td>${emailById[o.user_id] || "-"}</td>
+          <td>${won(o.amount)}</td>
+          <td><span class="badge ${o.status}">${o.status}</span></td>
+          <td>${fmt(o.created_at)}</td>
+        </tr>
+      `).join("");
+
+      document.querySelector("#usersTable tbody").innerHTML = (users || []).map(u => `
+        <tr>
+          <td>${u.email || "-"}</td>
+          <td>${u.is_admin ? "✅" : ""}</td>
+          <td>${fmt(u.created_at)}</td>
+        </tr>
+      `).join("");
+    }
+
+    init();
+  </script>
+</body>
+</html>

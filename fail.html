@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>결제 실패 · 브레도</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="result">
+    <div class="emoji">⚠️</div>
+    <h1>결제가 취소되었습니다</h1>
+    <p id="detail"></p>
+    <a class="btn ghost" href="index.html">스토어로 돌아가기</a>
+  </div>
+
+  <script>
+    const p = new URLSearchParams(location.search);
+    const message = p.get("message");
+    document.getElementById("detail").textContent =
+      message ? message : "결제가 완료되지 않았습니다.";
+  </script>
+</body>
+</html>
