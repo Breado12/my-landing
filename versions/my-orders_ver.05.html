@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>내 주문 내역 · 브레도</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div class="logo">🥖 브레도 BREADO</div>
+      <div class="nav-right"><a href="index.html">스토어</a></div>
+    </div>
+  </header>
+
+  <main class="wrap" id="main">
+    <p id="gate" style="margin-top:2rem;">불러오는 중…</p>
+
+    <div id="content" style="display:none;">
+      <h1 class="page-title">내 주문 내역</h1>
+      <table id="ordersTable">
+        <thead>
+          <tr><th>주문번호</th><th>상품</th><th>금액</th><th>상태</th><th>일시</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="empty" style="display:none; margin-top:1rem; color:var(--muted);">아직 주문 내역이 없어요.</p>
+    </div>
+  </main>
+
+  <footer>© 2026 브레도 BREADO</footer>
+
+  <script type="module">
+    import { supabase } from "./js/config.js";
+
+    const gate = document.getElementById("gate");
+    const content = document.getElementById("content");
+
+    function fmt(ts) { return new Date(ts).toLocaleString("ko-KR"); }
+    function won(n) { return n.toLocaleString("ko-KR") + "원"; }
+
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { gate.innerHTML = '로그인이 필요합니다. <a href="index.html">로그인하러 가기</a>'; return; }
+
+      gate.style.display = "none";
+      content.style.display = "block";
+
+      // RLS 정책(orders_read)이 본인 주문만 돌려줌
+      const { data: orders } = await supabase
+        .from("orders").select("*, products(name)").order("created_at", { ascending: false });
+
+      if (!orders || orders.length === 0) {
+        document.getElementById("empty").style.display = "block";
+        return;
+      }
+
+      document.querySelector("#ordersTable tbody").innerHTML = orders.map(o => `
+        <tr>
+          <td>${o.order_id.slice(0, 8)}…</td>
+          <td>${o.products ? o.products.name : "-"}</td>
+          <td>${won(o.amount)}</td>
+          <td><span class="badge ${o.status}">${o.status}</span></td>
+          <td>${fmt(o.created_at)}</td>
+        </tr>
+      `).join("");
+    }
+
+    init();
+  </script>
+</body>
+</html>
