@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>브레도 · 치아바타 &amp; 페스토 스토어</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://js.tosspayments.com/v1/payment"></script>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div class="logo">🥖 브레도 BREADO</div>
+      <div class="nav-right" id="navRight">
+        <!-- 로그인 상태에 따라 채워짐 -->
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- 로그인 전: 가입/로그인 -->
+    <section id="authSection">
+      <h1 class="page-title">로그인 후 구매할 수 있어요</h1>
+      <div class="auth">
+        <div class="card">
+          <h3>로그인</h3>
+          <div class="field">
+            <label>이메일</label>
+            <input type="email" id="loginEmail" placeholder="you@example.com" />
+          </div>
+          <div class="field">
+            <label>비밀번호</label>
+            <input type="password" id="loginPw" placeholder="••••••••" />
+          </div>
+          <button class="btn" id="loginBtn">로그인</button>
+          <div class="msg" id="loginMsg"></div>
+        </div>
+        <div class="card">
+          <h3>회원가입</h3>
+          <div class="field">
+            <label>이메일</label>
+            <input type="email" id="signupEmail" placeholder="you@example.com" />
+          </div>
+          <div class="field">
+            <label>비밀번호 (6자 이상)</label>
+            <input type="password" id="signupPw" placeholder="••••••••" />
+          </div>
+          <button class="btn ghost" id="signupBtn">가입하기</button>
+          <div class="msg" id="signupMsg"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 상품 목록 -->
+    <h2 class="section-title">상품</h2>
+    <div class="products" id="products"></div>
+  </main>
+
+  <footer>© 2026 브레도 BREADO · 매일 아침 갓 구운 치아바타와 수제 페스토</footer>
+
+  <script type="module">
+    import { supabase, TOSS_CLIENT_KEY } from "./js/config.js";
+
+    const navRight = document.getElementById("navRight");
+    const authSection = document.getElementById("authSection");
+    const productsEl = document.getElementById("products");
+
+    // ---- 인증 상태 렌더링 ----
+    async function renderAuth() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        authSection.style.display = "none";
+        let adminLink = "";
+        const { data: me } = await supabase
+          .from("profiles").select("is_admin").eq("id", user.id).single();
+        if (me && me.is_admin) adminLink = `<a href="admin.html">관리자</a>`;
+        navRight.innerHTML =
+          `<span>${user.email}</span>${adminLink}<button class="btn small" id="logoutBtn">로그아웃</button>`;
+        document.getElementById("logoutBtn").addEventListener("click", async () => {
+          await supabase.auth.signOut();
+          location.reload();
+        });
+      } else {
+        authSection.style.display = "block";
+        navRight.innerHTML = "";
+      }
+    }
+
+    // ---- 로그인 / 가입 ----
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      const msg = document.getElementById("loginMsg");
+      const { error } = await supabase.auth.signInWithPassword({
+        email: document.getElementById("loginEmail").value.trim(),
+        password: document.getElementById("loginPw").value,
+      });
+      if (error) { msg.className = "msg error"; msg.textContent = error.message; }
+      else location.reload();
+    });
+
+    document.getElementById("signupBtn").addEventListener("click", async () => {
+      const msg = document.getElementById("signupMsg");
+      const { error } = await supabase.auth.signUp({
+        email: document.getElementById("signupEmail").value.trim(),
+        password: document.getElementById("signupPw").value,
+      });
+      if (error) { msg.className = "msg error"; msg.textContent = error.message; }
+      else { msg.className = "msg ok"; msg.textContent = "가입 완료! 이제 로그인하세요."; }
+    });
+
+    // ---- 상품 목록 ----
+    async function renderProducts() {
+      const { data: products, error } = await supabase
+        .from("products").select("*").order("id");
+      if (error) { productsEl.innerHTML = `<p>상품을 불러오지 못했습니다: ${error.message}</p>`; return; }
+      productsEl.innerHTML = products.map(p => `
+        <div class="card product">
+          <div class="thumb">${p.emoji || "🥖"}</div>
+          <h3>${p.name}</h3>
+          <p class="desc">${p.description || ""}</p>
+          <div class="price">${p.price.toLocaleString("ko-KR")}원</div>
+          <button class="btn" data-id="${p.id}">구매하기</button>
+        </div>
+      `).join("");
+      productsEl.querySelectorAll("button[data-id]").forEach(btn => {
+        const product = products.find(p => p.id == btn.dataset.id);
+        btn.addEventListener("click", () => buy(product));
+      });
+    }
+
+    // ---- 결제 ----
+    async function buy(product) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { alert("로그인이 필요합니다."); return; }
+
+      const orderId = crypto.randomUUID();
+      const { error } = await supabase.from("orders").insert({
+        order_id: orderId,
+        user_id: user.id,
+        product_id: product.id,
+        quantity: 1,
+        amount: product.price,
+        status: "pending",
+      });
+      if (error) { alert("주문 생성 실패: " + error.message); return; }
+
+      const toss = TossPayments(TOSS_CLIENT_KEY);
+      await toss.requestPayment("카드", {
+        amount: product.price,
+        orderId,
+        orderName: product.name,
+        customerName: user.email,
+        successUrl: new URL("success.html", location.href).href,
+        failUrl: new URL("fail.html", location.href).href,
+      });
+    }
+
+    renderAuth();
+    renderProducts();
+  </script>
+</body>
+</html>
