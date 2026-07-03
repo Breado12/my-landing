@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>상품 상세 · 브레도</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://js.tosspayments.com/v1/payment"></script>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div class="logo"><a href="index.html">🥖 브레도 BREADO</a></div>
+      <div class="nav-right"><a href="index.html">← 스토어</a></div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p id="loading" style="margin-top:2rem;">불러오는 중…</p>
+    <div class="detail-wrap" id="detail" style="display:none;">
+      <div class="detail-img" id="img"></div>
+      <div class="detail-info">
+        <h1 id="pname"></h1>
+        <div id="rows"></div>
+        <div id="options"></div>
+        <div class="total-row">
+          <span>총 결제금액</span>
+          <span class="amt" id="total">0원</span>
+        </div>
+        <button class="btn" id="buyBtn" style="width:100%;">구매하기</button>
+        <div class="msg" id="msg"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>© 2026 브레도 BREADO</footer>
+
+  <script type="module">
+    import { supabase, TOSS_CLIENT_KEY } from "./js/config.js";
+
+    const SHIP_FEE = 3000, FREE_OVER = 40000;
+    const won = n => n.toLocaleString("ko-KR") + "원";
+    const id = new URLSearchParams(location.search).get("id");
+
+    let product = null, breads = [], pestos = [];
+    const shipping = subtotal => (subtotal >= FREE_OVER ? 0 : SHIP_FEE);
+
+    async function load() {
+      const { data: products } = await supabase.from("products").select("*").order("id");
+      if (!products) { document.getElementById("loading").textContent = "상품을 불러오지 못했습니다."; return; }
+      product = products.find(p => p.id == id);
+      if (!product) { document.getElementById("loading").textContent = "상품을 찾을 수 없습니다."; return; }
+      breads = products.filter(p => p.category === "bread");
+      pestos = products.filter(p => p.category === "pesto");
+
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("detail").style.display = "grid";
+      render();
+    }
+
+    function render() {
+      const isSet = product.category === "set";
+
+      const img = document.getElementById("img");
+      img.innerHTML = product.image_url ? `<img src="${product.image_url}" alt="${product.name}" />` : (product.emoji || "🥖");
+      document.getElementById("pname").textContent = product.name;
+
+      let rows = `<div class="info-row"><span class="k">상품요약정보</span><span>${product.description || ""}</span></div>`;
+      if (!isSet) {
+        if (product.original_price)
+          rows += `<div class="info-row"><span class="k">소비자가</span><span class="orig">${won(product.original_price)}</span></div>`;
+        rows += `<div class="info-row"><span class="k">판매가</span><span class="sale">${won(product.price)}</span></div>`;
+      }
+      rows += `<div class="info-row"><span class="k">배송방법</span><span>택배</span></div>`;
+      rows += `<div class="info-row"><span class="k">배송비</span><span>3,000원 (40,000원 이상 구매 시 무료)</span></div>`;
+      document.getElementById("rows").innerHTML = rows;
+
+      const opt = document.getElementById("options");
+      if (isSet) {
+        opt.innerHTML = `
+          <div class="detail-field">
+            <label>빵 선택</label>
+            <select id="breadSel">${breads.map(b => `<option value="${b.id}">${b.name} (${won(b.price)})</option>`).join("")}</select>
+          </div>
+          <div class="detail-field">
+            <label>페스토 선택</label>
+            <select id="pestoSel">${pestos.map(p => `<option value="${p.id}">${p.name} (${won(p.price)})</option>`).join("")}</select>
+          </div>
+          <p class="msg ok">빵 1개 + 페스토 1개 구성 시 5% 할인이 적용돼요.</p>`;
+        opt.querySelector("#breadSel").addEventListener("change", calc);
+        opt.querySelector("#pestoSel").addEventListener("change", calc);
+      } else {
+        opt.innerHTML = `
+          <div class="detail-field">
+            <label>수량</label>
+            <select id="qtySel">${[1,2,3,4,5].map(n => `<option value="${n}">${n}개</option>`).join("")}</select>
+          </div>`;
+        opt.querySelector("#qtySel").addEventListener("change", calc);
+      }
+      calc();
+    }
+
+    // 선택 기준 금액 계산 (배송비 포함)
+    function compute() {
+      const isSet = product.category === "set";
+      let subtotal, orderName;
+      if (isSet) {
+        const bread = breads.find(b => b.id == document.getElementById("breadSel").value);
+        const pesto = pestos.find(p => p.id == document.getElementById("pestoSel").value);
+        subtotal = Math.round((bread.price + pesto.price) * 0.95); // 세트 5% 할인
+        orderName = `세트: ${bread.name} + ${pesto.name}`;
+      } else {
+        const qty = parseInt(document.getElementById("qtySel").value, 10);
+        subtotal = product.price * qty;
+        orderName = `${product.name} ${qty}개`;
+      }
+      const ship = shipping(subtotal);
+      return { subtotal, ship, total: subtotal + ship, orderName };
+    }
+
+    function calc() {
+      const { total } = compute();
+      document.getElementById("total").textContent = won(total);
+    }
+
+    document.getElementById("buyBtn").addEventListener("click", async () => {
+      const msg = document.getElementById("msg");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { msg.className = "msg error"; msg.innerHTML = '로그인이 필요합니다. <a href="index.html">로그인하러 가기</a>'; return; }
+
+      const { total, orderName } = compute();
+      const orderId = crypto.randomUUID();
+      const { error } = await supabase.from("orders").insert({
+        order_id: orderId, user_id: user.id, product_id: product.id,
+        quantity: 1, amount: total, status: "pending",
+      });
+      if (error) { msg.className = "msg error"; msg.textContent = "주문 생성 실패: " + error.message; return; }
+
+      const toss = TossPayments(TOSS_CLIENT_KEY);
+      await toss.requestPayment("카드", {
+        amount: total, orderId, orderName, customerName: user.email,
+        successUrl: new URL("success.html", location.href).href,
+        failUrl: new URL("fail.html", location.href).href,
+      });
+    });
+
+    load();
+  </script>
+</body>
+</html>
